@@ -672,6 +672,18 @@ function Detail({ family, text, size, onClose }) {
 
 const DEFAULT_TEXT = "Handgloves ABCDEFG abcdefg 0123456789";
 
+/** Index of the row containing pixel `y`, given cumulative row tops. */
+function rowAt(offsets, y) {
+  let lo = 0;
+  let hi = offsets.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (offsets[mid + 1] <= y) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
 function App({ manifest }) {
   const [state, setState] = useState(parseHash);
   const [text, setText] = useState(
@@ -686,6 +698,7 @@ function App({ manifest }) {
       (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"),
   );
   const [selected, setSelected] = useState(null);
+  const [expanded, setExpanded] = useState(() => new Set());
   const [asideOpen, setAsideOpen] = useState(
     () =>
       (localStorage.getItem("fl.aside") ?? (innerWidth > 860 ? "1" : "0")) ===
@@ -736,6 +749,14 @@ function App({ manifest }) {
     if (scroller.current) scroller.current.scrollTop = 0;
   }, []);
 
+  const toggleExpanded = useCallback((id) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }, []);
+
   const families = manifest.families;
   const results = useMemo(() => {
     const list = filterFamilies(families, state);
@@ -760,16 +781,31 @@ function App({ manifest }) {
   );
 
   const rowHeight = Math.round(38 + size * 1.35);
+
+  // rows are no longer uniform -- an open one also stacks a rowHeight-tall
+  // block per style -- so scroll math goes through cumulative tops
+  const offsets = useMemo(() => {
+    const tops = new Float64Array(results.length + 1);
+    for (let i = 0; i < results.length; i += 1) {
+      const family = results[i];
+      const extra = expanded.has(family.id)
+        ? family.styles.length * rowHeight
+        : 0;
+      tops[i + 1] = tops[i] + rowHeight + extra;
+    }
+    return tops;
+  }, [results, rowHeight, expanded]);
+
   const [range, setRange] = useState([0, 40]);
   useEffect(() => {
     const el = scroller.current;
     if (!el) return undefined;
     const onScroll = () => {
       const viewport = Math.max(el.clientHeight, 600);
-      const start = Math.max(0, Math.floor(el.scrollTop / rowHeight) - 4);
+      const start = Math.max(0, rowAt(offsets, el.scrollTop) - 4);
       const end = Math.min(
         results.length,
-        Math.ceil((el.scrollTop + viewport) / rowHeight) + 4,
+        rowAt(offsets, el.scrollTop + viewport) + 5,
       );
       setRange([start, end]);
     };
@@ -780,7 +816,7 @@ function App({ manifest }) {
       el.removeEventListener("scroll", onScroll);
       removeEventListener("resize", onScroll);
     };
-  }, [results, rowHeight]);
+  }, [results, offsets]);
 
   const go = useCallback((path) => {
     setSelected(null);
@@ -1066,10 +1102,11 @@ function App({ manifest }) {
               : html`
                   <div
                     class="rows"
-                    style=${`height:${results.length * rowHeight}px`}
+                    style=${`height:${offsets[results.length]}px`}
                   >
                     ${visible.map((family, i) => {
                       const index = range[0] + i;
+                      const open = expanded.has(family.id);
                       const style =
                         family.styles.find(
                           (s) =>
@@ -1082,32 +1119,93 @@ function App({ manifest }) {
                           : style.files[0].path;
                       return html`
                         <div
-                          class="row ${selected === family.id ? "sel" : ""}"
+                          class="row ${selected === family.id
+                            ? "sel"
+                            : ""} ${open ? "open" : ""}"
                           key=${family.id}
-                          style=${`top:${index * rowHeight}px;height:${rowHeight}px`}
-                          onClick=${() =>
-                            setSelected(
-                              selected === family.id ? null : family.id,
-                            )}
+                          style=${`top:${offsets[index]}px;height:${offsets[index + 1] - offsets[index]}px`}
                         >
-                          <div class="head">
-                            <span class="fam">${family.name}</span>
-                            <span class="meta">
-                              ${[
-                                family.category,
-                                `${family.styleCount} style${family.styleCount === 1 ? "" : "s"}`,
-                                family.dir,
-                                family.foundry,
-                              ]
-                                .filter(Boolean)
-                                .join(" · ")}
-                            </span>
+                          <div
+                            class="rowhead"
+                            style=${`height:${rowHeight}px`}
+                            onClick=${() => toggleExpanded(family.id)}
+                          >
+                            <div class="head">
+                              <span class="fam">
+                                ${open ? "▾" : "▸"} ${family.name}
+                              </span>
+                              <span class="meta">
+                                ${[
+                                  family.category,
+                                  `${family.styleCount} style${family.styleCount === 1 ? "" : "s"}`,
+                                  family.dir,
+                                  family.foundry,
+                                ]
+                                  .filter(Boolean)
+                                  .join(" · ")}
+                              </span>
+                              <button
+                                class="info ${selected === family.id
+                                  ? "on"
+                                  : ""}"
+                                title="show details in the side panel"
+                                onClick=${(e) => {
+                                  e.stopPropagation();
+                                  setSelected(
+                                    selected === family.id ? null : family.id,
+                                  );
+                                }}
+                              >
+                                Info
+                              </button>
+                            </div>
+                            <${Specimen}
+                              path=${preview}
+                              text=${text}
+                              size=${size}
+                            />
                           </div>
-                          <${Specimen}
-                            path=${preview}
-                            text=${text}
-                            size=${size}
-                          />
+                          ${open
+                            ? family.styles.map((s, j) => {
+                                const w = sf(s, family, "weight", 400);
+                                const p =
+                                  "preview" in s ? s.preview : s.files[0].path;
+                                return html`
+                                  <div
+                                    class="styleline"
+                                    key=${s.name + j}
+                                    style=${`height:${rowHeight}px`}
+                                  >
+                                    <div class="sname">
+                                      <b>${s.name}</b>
+                                      <span class="chip">
+                                        ${w}${WEIGHT_NAMES[w]
+                                          ? ` ${WEIGHT_NAMES[w]}`
+                                          : ""}
+                                      </span>
+                                      <span class="chip">
+                                        ${sf(s, family, "width", "normal")}
+                                      </span>
+                                      ${sf(s, family, "italic", false)
+                                        ? html`
+                                            <span class="chip">italic</span>
+                                          `
+                                        : null}
+                                      ${sf(s, family, "mono", false)
+                                        ? html`
+                                            <span class="chip">mono</span>
+                                          `
+                                        : null}
+                                    </div>
+                                    <${Specimen}
+                                      path=${p}
+                                      text=${text}
+                                      size=${size}
+                                    />
+                                  </div>
+                                `;
+                              })
+                            : null}
                         </div>
                       `;
                     })}
