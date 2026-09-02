@@ -2,6 +2,9 @@
 
 For my collection of typefaces. Entirely vibe-coded with Claude Opus 5. Uses Preact for the web UI (a single file.)
 
+![](https://public.nikhil.io/project-screenshots/typeface-browser-light.png)
+![](https://public.nikhil.io/project-screenshots/typeface-browser-dark.png)
+
 ## Usage
 
 ```bash
