@@ -5,7 +5,6 @@ For my collection of typefaces. Entirely vibe-coded with Claude Opus 5. Uses Pre
 ## Usage
 
 ```bash
-
 # Build manifest
 # pip install -U fonttools
 python build-manifest.py
@@ -50,21 +49,13 @@ python3 _scripts/build-manifest.py     # scan fonts -> _scripts/web/manifest.jso
 python3 _scripts/serve.py              # serve the collection, opens the app
 ```
 
-`serve.py` roots at the collection folder so the app sits at
-`/_scripts/web/` and every font loads from its manifest path. Re-runs of the
-scanner are incremental (`_scripts/.manifest-cache.json`, keyed on size+mtime);
-`--no-cache` forces a full rescan, needed after changing any heuristic.
+`serve.py` roots at the collection folder so the app sits at `/_scripts/web/` and every font loads from its manifest path. Re-runs of the scanner are incremental (`_scripts/.manifest-cache.json`, keyed on size+mtime); `--no-cache` forces a full rescan, needed after changing any heuristic.
 
-Useful flags: `--limit N`, `--dry-run`, `--jobs N`,
-`--report-unclassified FILE` (lists families the heuristics were unsure about,
-so `category-overrides.json` can be seeded from real evidence).
+Useful flags: `--limit N`, `--dry-run`, `--jobs N`, `--report-unclassified FILE` (lists families the heuristics were unsure about, so `category-overrides.json` can be seeded from real evidence).
 
-## Why categories are measured, not read
+### Why categories are measured, not read
 
-The metadata that should classify these fonts mostly isn't there — across a
-400-font sample, PANOSE serif-style is `0` ("any") in 83%, `sFamilyClass` is
-unset in 98%, and `usWeightClass` is simply wrong in places (`Agenda-Black.otf`
-reports 400). So the scanner measures the outlines:
+The metadata that should classify these fonts mostly isn't there — across a 400-font sample, PANOSE serif-style is `0` ("any") in 83%, `sFamilyClass` is unset in 98%, and `usWeightClass` is simply wrong in places (`Agenda-Black.otf` reports 400). So the scanner measures the outlines:
 
 | signal       | how                                              | used for                                                                                                                                                                                |
 | ------------ | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -73,46 +64,27 @@ reports 400). So the scanner measures the outlines:
 | `stemRatio`  | stem thickness of `I` ÷ its height               | true weight, and the picture test — text stems stay under ~0.39, so `> 0.42` means the glyph is a drawing, not a letter (one-width dingbat sets would otherwise all read as monospaced) |
 | `widthRatio` | advance of `H` ÷ its cap height                  | condensed / expanded                                                                                                                                                                    |
 
-Weight comes from style-name tokens first and `usWeightClass` only as a
-fallback; `weightSource` records which was used. Categories carry
-`categoryConfidence` and `categorySource`, and
-`_scripts/category-overrides.json` overrides any of it by family or folder.
+Weight comes from style-name tokens first and `usWeightClass` only as a fallback; `weightSource` records which was used. Categories carry `categoryConfidence` and `categorySource`, and `_scripts/category-overrides.json` overrides any of it by family or folder.
 
-## Manifest shape
+### Manifest shape
 
-One entry per family (keyed on folder + typographic family), styles collapsed
-so `.otf`/`.ttf`/`.woff2` of the same face are one style with several `files`.
+One entry per family (keyed on folder + typographic family), styles collapsed so `.otf`/`.ttf`/`.woff2` of the same face are one style with several `files`.
 
-**Values identical across all of a family's styles are hoisted to the family
-and removed from the styles** — that alone cuts the file from 26 MB to 16 MB.
-So every style read goes through the fallback the app calls `sf()`:
+**Values identical across all of a family's styles are hoisted to the family and removed from the styles** — that alone cuts the file from 26 MB to 16 MB. So every style read goes through the fallback the app calls `sf()`:
 
 ```js
 const sf = (style, family, key, fallback) =>
   key in style ? style[key] : (key in family ? family[key] : fallback);
 ```
 
-Two compact arrays: `signals` is `[serifRatio, stemRatio, widthRatio,
-monoRatio]` and `metrics` is `[capHeight, xHeight, ascender, descender,
-lineGap]`, `null`/`0` where unmeasurable.
+Two compact arrays: `signals` is `[serifRatio, stemRatio, widthRatio, monoRatio]` and `metrics` is `[capHeight, xHeight, ascender, descender, lineGap]`, `null`/`0` where unmeasurable.
 
-`preview` is the file to render; it is **omitted** when it is just
-`files[0].path`, and explicitly `null` for `.ttc`/`.otc`, which `@font-face`
-cannot load. Byte-identical copies elsewhere in the collection get
-`duplicateOf` pointing at the canonical path.
+`preview` is the file to render; it is **omitted** when it is just `files[0].path`, and explicitly `null` for `.ttc`/`.otc`, which `@font-face` cannot load. Byte-identical copies elsewhere in the collection get `duplicateOf` pointing at the canonical path.
 
-## App
+### App
 
-`index.html` + `app.js` + `styles.css`, `Preact` and `htm` vendored in
-`vendor/standalone.module.js` — no build step, no `node_modules`.
+`index.html` + `app.js` + `styles.css`, `Preact` and `htm` vendored in `vendor/standalone.module.js` — no build step, no `node_modules`.
 
-The folder tree is the navigation: `#/A/Agenda`,
-`#/Old OS X Collections/Agfa MonoType FontFolio`. Search and facets ride in the
-hash query string (`#/A?q=condensed&cat=sans&wmin=700`), so every view is a
-link. Search matches across all metadata — family, style, PostScript name,
-designer, foundry, copyright, version, file paths.
+The folder tree is the navigation: `#/A/Agenda`, `#/Old OS X Collections/Agfa MonoType FontFolio`. Search and facets ride in the hash query string (`#/A?q=condensed&cat=sans&wmin=700`), so every view is a link. Search matches across all metadata — family, style, PostScript name, designer, foundry, copyright, version, file paths.
 
-Specimens are the real fonts, loaded as rows scroll into view and released on
-unmount; the loader caps the live set at 400 faces (`MAX_FACES`) and calls
-`document.fonts.delete()` beyond that, without which scrolling 19k styles
-exhausts memory.
+Specimens are the real fonts, loaded as rows scroll into view and released on unmount; the loader caps the live set at 400 faces (`MAX_FACES`) and calls `document.fonts.delete()` beyond that, without which scrolling 19k styles exhausts memory.

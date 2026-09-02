@@ -466,7 +466,10 @@ function TreeNode({ name, node, prefix, current, go, depth }) {
       <div
         class="tnode ${isCurrent ? "sel" : ""}"
         style=${`padding-left:${6 + depth * 11}px`}
-        onClick=${() => go(path)}
+        onClick=${() => {
+          if (children.length) setOpen(!open);
+          go(path);
+        }}
       >
         <span
           class="tw"
@@ -787,7 +790,7 @@ function App({ manifest }) {
   return html`
     <div class="app">
       <header>
-        <span class="brand">Font Library</span>
+        <span class="brand">Type Library</span>
         <span class="count">
           ${results.length.toLocaleString()} families ·
           ${totalStyles.toLocaleString()} styles
