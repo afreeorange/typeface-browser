@@ -686,6 +686,11 @@ function App({ manifest }) {
       (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"),
   );
   const [selected, setSelected] = useState(null);
+  const [asideOpen, setAsideOpen] = useState(
+    () =>
+      (localStorage.getItem("fl.aside") ?? (innerWidth > 860 ? "1" : "0")) ===
+      "1",
+  );
   const scroller = useRef(null);
 
   useEffect(() => {
@@ -703,6 +708,9 @@ function App({ manifest }) {
   useEffect(() => {
     localStorage.setItem("fl.size", size);
   }, [size]);
+  useEffect(() => {
+    localStorage.setItem("fl.aside", asideOpen ? "1" : "0");
+  }, [asideOpen]);
 
   const update = useCallback((patch, push) => {
     setState((prev) => {
@@ -790,6 +798,15 @@ function App({ manifest }) {
   return html`
     <div class="app">
       <header>
+        <button
+          class="aside-toggle ${asideOpen ? "on" : ""}"
+          title="toggle filters"
+          aria-label="toggle filters"
+          aria-expanded=${asideOpen}
+          onClick=${() => setAsideOpen((v) => !v)}
+        >
+          ☰
+        </button>
         <span class="brand">Type Library</span>
         <span class="count">
           ${results.length.toLocaleString()} families ·
@@ -827,7 +844,7 @@ function App({ manifest }) {
       </header>
 
       <div class="panes">
-        <aside>
+        <aside class=${asideOpen ? "" : "collapsed"}>
           <${Group} title="folders">
             <div class="tree">
               <div

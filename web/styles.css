@@ -65,6 +65,11 @@ header {
   flex: none;
   flex-wrap: wrap;
 }
+header .aside-toggle {
+  flex: none;
+  padding: 4px 8px;
+  line-height: 1;
+}
 header .brand {
   font-weight: 650;
   letter-spacing: -0.01em;
@@ -139,14 +144,25 @@ input[type="range"] {
   flex: 1;
   display: flex;
   min-height: 0;
+  position: relative;
 }
 aside {
   width: 260px;
   flex: none;
   border-right: var(--row);
   overflow-y: auto;
+  overflow-x: hidden;
   background: var(--bg-alt);
   padding-bottom: 40px;
+  transition: width 0.16s ease;
+}
+/* children keep their width so the pane slides instead of reflowing */
+aside > * {
+  width: 260px;
+}
+aside.collapsed {
+  width: 0;
+  border-right: 0;
 }
 main {
   flex: 1;
@@ -436,6 +452,14 @@ main {
 }
 @media (max-width: 860px) {
   aside {
-    display: none;
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 9;
+    box-shadow: 8px 0 24px rgba(0, 0, 0, 0.18);
+  }
+  aside.collapsed {
+    box-shadow: none;
   }
 }
