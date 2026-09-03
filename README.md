@@ -1,9 +1,11 @@
 # Typeface Browser
 
-For my collection of typefaces. Entirely vibe-coded with Claude Opus 5. Uses Preact for the web UI (a single file.)
+For my collection of typefaces. Entirely vibe-coded with Claude Opus 5. Uses Preact for the web UI (which is just two files).
 
-![](https://public.nikhil.io/project-screenshots/typeface-browser-light.png)
-![](https://public.nikhil.io/project-screenshots/typeface-browser-dark.png)
+<p align="center">
+  <img src="https://public.nikhil.io/project-screenshots/typeface-browser-light.png" width="45%">
+  <img src="https://public.nikhil.io/project-screenshots/typeface-browser-dark.png" width="45%">
+</p>
 
 ## Usage
 
@@ -40,6 +42,13 @@ Once manifest is generated, I use this `Caddyfile`. You can run `python serve.py
       }
   }
 ```
+
+## TODO
+
+- [ ] Allow downloads
+- [ ] Link to any auxiliary media (e.g. specimen PDFs)
+- [ ] Maybe JSX? -- Build step must be simple
+- [ ] Maybe Tailwind? -- Build step must be simple
 
 ---
 
