@@ -34,6 +34,11 @@ SKIP_DIRS = {"_scripts", "_software"}
 CACHE_NAME = ".manifest-cache.json"
 OVERRIDES_NAME = "category-overrides.json"
 
+# scripts/ lives in the repo, the repo lives in the collection
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_DIR = os.path.dirname(SCRIPT_DIR)
+COLLECTION_DIR = os.path.dirname(REPO_DIR)
+
 # name table IDs we keep
 NAME_IDS = {
     0: "copyright",
@@ -831,8 +836,8 @@ def slug(text):
     return text or "untitled"
 
 
-def load_overrides(scripts_dir):
-    path = os.path.join(scripts_dir, OVERRIDES_NAME)
+def load_overrides(repo_dir):
+    path = os.path.join(repo_dir, OVERRIDES_NAME)
     if not os.path.exists(path):
         return {}
     try:
@@ -1128,18 +1133,17 @@ def main():
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    here = os.path.dirname(os.path.abspath(__file__))
     ap.add_argument(
         "-i",
         "--input",
-        default=os.path.dirname(here),
-        help="font collection root (default: parent of _scripts)",
+        default=COLLECTION_DIR,
+        help="font collection root (default: the folder holding this repo)",
     )
     ap.add_argument(
         "-o",
         "--output",
-        default=os.path.join(here, "web", "manifest.json"),
-        help="manifest path (default: _scripts/web/manifest.json)",
+        default=os.path.join(REPO_DIR, "web", "manifest.json"),
+        help="manifest path (default: web/manifest.json)",
     )
     ap.add_argument(
         "-j",
@@ -1170,12 +1174,14 @@ def main():
         sys.exit(f"not a directory: {root}")
 
     print(f"scanning {root} ...")
+    # don't walk this repo when it sits inside the collection
+    SKIP_DIRS.add(os.path.basename(REPO_DIR))
     paths = list(iter_font_files(root))
     if args.limit:
         paths = paths[: args.limit]
     print(f"{len(paths)} font file(s) found")
 
-    cache_path = os.path.join(here, CACHE_NAME)
+    cache_path = os.path.join(REPO_DIR, CACHE_NAME)
     cache = {} if args.no_cache else load_cache(cache_path)
 
     fresh, stale = [], []
@@ -1218,7 +1224,7 @@ def main():
         print(f"parsed {len(stale)} in {time.time() - started:.1f}s")
 
     records.sort(key=lambda r: r["path"])
-    overrides = load_overrides(here)
+    overrides = load_overrides(REPO_DIR)
     families = build_families(records, overrides)
     tree = build_tree(families)
     facets = build_facets(families)

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Serve the font collection so the browser UI can render the fonts themselves.
 
-Roots at the collection folder (the parent of _scripts) so the app lives at
-/_scripts/web/ and every font resolves at its manifest path, e.g.
+Roots at the collection folder (the folder holding this repo) so the app lives
+at /<repo>/web/ and every font resolves at its manifest path, e.g.
 /A/Agenda/Agenda-Black.otf. Adds the font MIME types http.server doesn't know,
 gzips the manifest on the fly, and threads requests so the dozens of parallel
 font loads a scrolling list kicks off don't queue behind each other.
@@ -20,7 +20,11 @@ import sys
 import webbrowser
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
-APP_PATH = "/_scripts/web/"
+# scripts/ lives in the repo, the repo lives in the collection
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+REPO_DIR = os.path.dirname(SCRIPT_DIR)
+COLLECTION_DIR = os.path.dirname(REPO_DIR)
+APP_PATH = f"/{os.path.basename(REPO_DIR)}/web/"
 
 FONT_TYPES = {
     ".otf": "font/otf",
@@ -81,14 +85,13 @@ def main():
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    here = os.path.dirname(os.path.abspath(__file__))
     ap.add_argument("-p", "--port", type=int, default=8000)
     ap.add_argument("-b", "--bind", default="127.0.0.1")
     ap.add_argument(
         "-d",
         "--directory",
-        default=os.path.dirname(here),
-        help="collection root (default: parent of _scripts)",
+        default=COLLECTION_DIR,
+        help="collection root (default: the folder holding this repo)",
     )
     ap.add_argument("-v", "--verbose", action="store_true", help="log requests")
     ap.add_argument("--no-open", action="store_true", help="don't open a browser")
@@ -98,7 +101,7 @@ def main():
     if not os.path.isdir(root):
         sys.exit(f"not a directory: {root}")
 
-    manifest = os.path.join(root, "_scripts", "web", "manifest.json")
+    manifest = os.path.join(REPO_DIR, "web", "manifest.json")
     if not os.path.exists(manifest):
         print("warning: no manifest yet - run build-manifest.py first", file=sys.stderr)
 

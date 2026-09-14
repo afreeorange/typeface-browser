@@ -7,6 +7,7 @@ import {
   useRef,
   useCallback,
 } from "./vendor/standalone.module.js";
+import { buildZip, saveBlob, safeName } from "./zip.js";
 
 // ---------------------------------------------------------------- manifest
 //
@@ -65,6 +66,8 @@ const faces = new Map(); // path -> {id, state, refs, face, subs}
 const released = []; // paths with refs === 0, oldest first
 
 const encodePath = (p) => p.split("/").map(encodeURIComponent).join("/");
+const fontUrl = (p) => new URL(encodePath(p), fontBase).href;
+const baseName = (p) => p.split("/").pop();
 
 function notify(entry) {
   entry.subs.forEach((cb) => cb());
@@ -96,8 +99,7 @@ function retain(path) {
       subs: new Set(),
     };
     faces.set(path, entry);
-    const url = new URL(encodePath(path), fontBase).href;
-    const face = new FontFace(entry.id, `url("${url}")`);
+    const face = new FontFace(entry.id, `url("${fontUrl(path)}")`);
     entry.face = face;
     face
       .load()
@@ -530,6 +532,8 @@ function Row({ label, value }) {
 
 function Detail({ family, text, size, onClose }) {
   const [copied, setCopied] = useState("");
+  const [zip, setZip] = useState(null);
+  const zipping = useRef(false);
   const copy = (path) => {
     navigator.clipboard?.writeText(path);
     setCopied(path);
@@ -537,6 +541,50 @@ function Detail({ family, text, size, onClose }) {
   };
   const meta = (key) => family[key];
   const dupes = family.duplicateCount || 0;
+
+  const allFiles = family.styles.flatMap((style) => style.files);
+  const totalBytes = allFiles.reduce((n, file) => n + (file.size || 0), 0);
+
+  // single files go straight through the anchor's download attribute; a whole
+  // family is fetched and zipped here, because browsers refuse a burst of
+  // programmatic downloads
+  const downloadFamily = async () => {
+    if (zipping.current) return;
+    zipping.current = true;
+    setZip({ done: 0, total: allFiles.length });
+    try {
+      const used = new Map();
+      const entries = [];
+      for (const file of allFiles) {
+        const response = await fetch(fontUrl(file.path));
+        if (!response.ok) {
+          throw new Error(`${response.status} on ${file.path}`);
+        }
+        let name = baseName(file.path);
+        const seen = used.get(name) || 0;
+        used.set(name, seen + 1);
+        if (seen) {
+          const dot = name.lastIndexOf(".");
+          name =
+            dot > 0
+              ? `${name.slice(0, dot)} (${seen + 1})${name.slice(dot)}`
+              : `${name} (${seen + 1})`;
+        }
+        entries.push({
+          name,
+          bytes: new Uint8Array(await response.arrayBuffer()),
+        });
+        setZip({ done: entries.length, total: allFiles.length });
+      }
+      saveBlob(buildZip(entries), `${safeName(family.name)}.zip`);
+      setZip(null);
+    } catch (err) {
+      setZip({ error: err.message });
+    } finally {
+      zipping.current = false;
+    }
+  };
+
   return html`
     <div class="detail">
       <button class="close" onClick=${onClose}>close</button>
@@ -553,6 +601,23 @@ function Detail({ family, text, size, onClose }) {
               <span class="dup">
                 ${dupes} duplicate${dupes === 1 ? "" : "s"}
               </span>
+            `
+          : null}
+      </div>
+
+      <div class="actions">
+        <button
+          class="download"
+          disabled=${!!zip && zip.error === undefined}
+          onClick=${downloadFamily}
+        >
+          ${zip && zip.done !== undefined
+            ? `zipping ${zip.done}/${zip.total}…`
+            : `download all · ${allFiles.length} file${allFiles.length === 1 ? "" : "s"} · ${fmtBytes(totalBytes)}`}
+        </button>
+        ${zip && zip.error
+          ? html`
+              <span class="dl-error">${zip.error}</span>
             `
           : null}
       </div>
@@ -646,17 +711,26 @@ function Detail({ family, text, size, onClose }) {
               />
               ${style.files.map(
                 (file) => html`
-                  <div
-                    class="path ${file.duplicateOf ? "dup" : ""}"
-                    key=${file.path}
-                    title="click to copy"
-                    onClick=${() => copy(file.path)}
-                  >
-                    ${copied === file.path ? "✓ copied  " : ""}${file.path} ·
-                    ${file.format} · ${fmtBytes(file.size)}
-                    ${file.duplicateOf
-                      ? ` · duplicate of ${file.duplicateOf}`
-                      : ""}
+                  <div class="pathrow" key=${file.path}>
+                    <span
+                      class="path ${file.duplicateOf ? "dup" : ""}"
+                      title="click to copy path"
+                      onClick=${() => copy(file.path)}
+                    >
+                      ${copied === file.path ? "✓ copied  " : ""}${file.path} ·
+                      ${file.format} · ${fmtBytes(file.size)}
+                      ${file.duplicateOf
+                        ? ` · duplicate of ${file.duplicateOf}`
+                        : ""}
+                    </span>
+                    <a
+                      class="dl"
+                      href=${fontUrl(file.path)}
+                      download=${baseName(file.path)}
+                      title=${`download ${baseName(file.path)}`}
+                    >
+                      ↓
+                    </a>
                   </div>
                 `,
               )}
@@ -1196,6 +1270,20 @@ function App({ manifest }) {
                                             <span class="chip">mono</span>
                                           `
                                         : null}
+                                      ${p
+                                        ? html`
+                                            <a
+                                              class="dl"
+                                              href=${fontUrl(p)}
+                                              download=${baseName(p)}
+                                              title=${`download ${baseName(p)}`}
+                                              onClick=${(e) =>
+                                                e.stopPropagation()}
+                                            >
+                                              ↓
+                                            </a>
+                                          `
+                                        : null}
                                     </div>
                                     <${Specimen}
                                       path=${p}
@@ -1249,6 +1337,6 @@ fetch("manifest.json")
   .catch((err) => {
     document.getElementById("app").innerHTML =
       `<div class="boot">could not load manifest.json — ${err.message}<br><br>` +
-      `run <code>python3 _scripts/build-manifest.py</code>, then serve with ` +
-      `<code>python3 _scripts/serve.py</code>.</div>`;
+      `run <code>python3 scripts/build-manifest.py</code>, then serve with ` +
+      `<code>python3 scripts/serve.py</code>.</div>`;
   });

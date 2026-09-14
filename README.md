@@ -1,6 +1,6 @@
 # Typeface Browser
 
-For my collection of typefaces. Entirely vibe-coded with Claude Opus 5. Uses Preact for the web UI (which is just two files).
+For my collection of typefaces. Entirely vibe-coded with Claude Opus 5. Uses Preact for the web UI (which is just five files.)
 
 <p align="center">
   <img src="https://public.nikhil.io/project-screenshots/typeface-browser-light.png" width="45%">
@@ -12,13 +12,13 @@ For my collection of typefaces. Entirely vibe-coded with Claude Opus 5. Uses Pre
 ```bash
 # Build manifest
 # pip install -U fonttools
-python build-manifest.py
+python scripts/build-manifest.py
 
 # Organize fonts
-python organize.py
+python scripts/organize.py
 ```
 
-Once manifest is generated, I use this `Caddyfile`. You can run `python serve.py` as well.
+Once manifest is generated, I use this `Caddyfile`. You can run `python scripts/serve.py` as well.
 
 ```
 :8080 {
@@ -36,7 +36,7 @@ Once manifest is generated, I use this `Caddyfile`. You can run `python serve.py
       }
 
       handle {
-          root * /path/to/fonts/_scripts/web
+          root * /path/to/fonts/typeface-browser/web
           header Cache-Control "no-store"
           file_server
       }
@@ -45,7 +45,7 @@ Once manifest is generated, I use this `Caddyfile`. You can run `python serve.py
 
 ## TODO
 
-- [ ] Allow downloads
+- [x] Allow downloads
 - [ ] Link to any auxiliary media (e.g. specimen PDFs)
 - [ ] Maybe JSX? -- Build step must be simple
 - [ ] Maybe Tailwind? -- Build step must be simple
@@ -57,11 +57,11 @@ Once manifest is generated, I use this `Caddyfile`. You can run `python serve.py
 Searchable browser for the collection. Two commands:
 
 ```sh
-python3 _scripts/build-manifest.py     # scan fonts -> _scripts/web/manifest.json
-python3 _scripts/serve.py              # serve the collection, opens the app
+python3 scripts/build-manifest.py     # scan fonts -> web/manifest.json
+python3 scripts/serve.py              # serve the collection, opens the app
 ```
 
-`serve.py` roots at the collection folder so the app sits at `/_scripts/web/` and every font loads from its manifest path. Re-runs of the scanner are incremental (`_scripts/.manifest-cache.json`, keyed on size+mtime); `--no-cache` forces a full rescan, needed after changing any heuristic.
+`serve.py` roots at the collection folder — the folder holding this repo — so the app sits at `/typeface-browser/web/` and every font loads from its manifest path. Re-runs of the scanner are incremental (`.manifest-cache.json`, keyed on size+mtime); `--no-cache` forces a full rescan, needed after changing any heuristic.
 
 Useful flags: `--limit N`, `--dry-run`, `--jobs N`, `--report-unclassified FILE` (lists families the heuristics were unsure about, so `category-overrides.json` can be seeded from real evidence).
 
@@ -76,7 +76,7 @@ The metadata that should classify these fonts mostly isn't there — across a 40
 | `stemRatio`  | stem thickness of `I` ÷ its height               | true weight, and the picture test — text stems stay under ~0.39, so `> 0.42` means the glyph is a drawing, not a letter (one-width dingbat sets would otherwise all read as monospaced) |
 | `widthRatio` | advance of `H` ÷ its cap height                  | condensed / expanded                                                                                                                                                                    |
 
-Weight comes from style-name tokens first and `usWeightClass` only as a fallback; `weightSource` records which was used. Categories carry `categoryConfidence` and `categorySource`, and `_scripts/category-overrides.json` overrides any of it by family or folder.
+Weight comes from style-name tokens first and `usWeightClass` only as a fallback; `weightSource` records which was used. Categories carry `categoryConfidence` and `categorySource`, and `category-overrides.json` overrides any of it by family or folder.
 
 ### Manifest shape
 
@@ -95,8 +95,12 @@ Two compact arrays: `signals` is `[serifRatio, stemRatio, widthRatio, monoRatio]
 
 ### App
 
-`index.html` + `app.js` + `styles.css`, `Preact` and `htm` vendored in `vendor/standalone.module.js` — no build step, no `node_modules`.
+`index.html` + `app.js` + `styles.css` + `zip.js`, `Preact` and `htm` vendored in `vendor/standalone.module.js` — no build step, no `node_modules`.
 
 The folder tree is the navigation: `#/A/Agenda`, `#/Old OS X Collections/Agfa MonoType FontFolio`. Search and facets ride in the hash query string (`#/A?q=condensed&cat=sans&wmin=700`), so every view is a link. Search matches across all metadata — family, style, PostScript name, designer, foundry, copyright, version, file paths.
 
 Specimens are the real fonts, loaded as rows scroll into view and released on unmount; the loader caps the live set at 400 faces (`MAX_FACES`) and calls `document.fonts.delete()` beyond that, without which scrolling 19k styles exhausts memory.
+
+### Downloads
+
+Single files come down through an anchor's `download` attribute — one `↓` next to every style in an expanded row, and one next to every file in the detail panel. "Download all" zips a whole family instead, because browsers refuse a burst of programmatic downloads. `zip.js` writes the archive itself: store-only, no compression, ~150 lines, no dependency. Fonts barely deflate anyway.

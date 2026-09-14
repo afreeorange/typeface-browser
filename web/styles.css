@@ -519,3 +519,44 @@ main {
     box-shadow: none;
   }
 }
+
+/* ------------------------------------------------------------- downloads */
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 0 14px 10px;
+}
+button.download {
+  font-variant-numeric: tabular-nums;
+}
+button.download:disabled {
+  color: var(--fg-faint);
+  cursor: progress;
+}
+.dl-error {
+  color: var(--warn);
+  font-size: 11px;
+}
+.pathrow {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.pathrow .path {
+  flex: 1;
+  min-width: 0;
+}
+a.dl {
+  flex: none;
+  color: var(--fg-faint);
+  text-decoration: none;
+  padding: 0 4px;
+  border-radius: 4px;
+  line-height: 1.4;
+}
+a.dl:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
