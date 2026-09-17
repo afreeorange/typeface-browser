@@ -129,6 +129,16 @@ export function buildZip(entries) {
   });
 }
 
+/** Hand a URL to the browser as a download, without fetching it first. */
+export function saveUrl(url, filename) {
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 export function saveBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");

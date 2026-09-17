@@ -27,7 +27,25 @@ from collections import Counter, defaultdict
 
 FONT_EXTS = {".otf", ".ttf", ".ttc", ".otc", ".woff", ".woff2"}
 COLLECTION_EXTS = {".ttc", ".otc"}
-FORMAT_RANK = {"woff2": 0, "woff": 1, "otf": 2, "ttf": 3, "ttc": 9, "otc": 9}
+
+# downloadable but unreadable: .svg fonts and .eot are never parsed, only
+# attached to the style their filename matches
+AUX_EXTS = {".svg", ".eot"}
+
+FORMAT_RANK = {
+    "woff2": 0, "woff": 1, "otf": 2, "ttf": 3,
+    "ttc": 9, "otc": 9, "eot": 9, "svg": 9,
+}
+
+# formats @font-face cannot use, so never a preview
+UNRENDERABLE = {"ttc", "otc", "eot", "svg"}
+
+# a kit splits one family across Family/TTF, Family/WOFF2, Family/web/webfonts
+FORMAT_DIRS = re.compile(
+    r"^(ttf|otf|woff|woff2|eot|svg|ttc|otc|web|webfont|webfonts|desktop|app|"
+    r"mobile|print|opentype|truetype|postscript|type1)s?$",
+    re.I,
+)
 
 SKIP_DIRS = {"_scripts", "_software"}
 
@@ -169,6 +187,56 @@ def is_font(name):
     return os.path.splitext(name)[1].lower() in FONT_EXTS
 
 
+def family_dir(path):
+    """Directory a family groups under, with format subfolders folded away.
+
+    Iterative because kits nest them -- FontAwesome ships web/webfonts and
+    desktop/otfs. The file's own path is never rewritten, only the grouping.
+    """
+    parts = os.path.dirname(path).replace(os.sep, "/").split("/")
+    while len(parts) > 1 and FORMAT_DIRS.match(parts[-1]):
+        parts.pop()
+    return "/".join(parts)
+
+
+# trailing noise a web kit adds but a desktop file doesn't. Stripped
+# repeatedly: "averta-regular-webfont" has to reach "averta" to meet
+# "Averta Regular" coming the other way.
+NOISE_TOKEN = re.compile(r"[-_ ]?(webfont|web|regular)$", re.I)
+
+
+def norm_key(text):
+    """Filename or PostScript name reduced to something two kits agree on."""
+    text = (text or "").lower()
+    while True:
+        stripped = NOISE_TOKEN.sub("", text)
+        if stripped == text:
+            break
+        text = stripped
+    return re.sub(r"[^a-z0-9]", "", text)
+
+
+def style_keys(rec):
+    """Every name under which this file might meet the same face in another
+    format.
+
+    Neither the filename nor the PostScript name is enough alone. Web kits
+    rename the file -- Averta ships "Averta Black Italic.ttf" beside
+    "averta-blackitalic-webfont.woff2" -- while also shipping a junk psName
+    ("\x7f" in Averta's WOFF2, "." in every Diatype file). Other builds do the
+    reverse and keep a good psName under a renamed file: "CalibreWeb-Bold.woff"
+    is psName "Calibre-Bold".
+    """
+    keys = {norm_key(rec["stem"])}
+    ps = norm_key(rec.get("psName"))
+    # a psName carrying only the style ("Thin", "Light Italic" -- five of
+    # Averta's TTFs) names no family and would merge unrelated faces
+    style_only = norm_key(rec.get("typoSubfamily") or rec.get("subfamily"))
+    if len(ps) >= 6 and ps != style_only:
+        keys.add(ps)
+    return {k for k in keys if k}
+
+
 def iter_font_files(root):
     for dirpath, dirs, files in os.walk(root):
         dirs[:] = sorted(
@@ -178,6 +246,19 @@ def iter_font_files(root):
             if name.startswith("._") or name.startswith("."):
                 continue
             if is_font(name):
+                yield os.path.join(dirpath, name)
+
+
+def iter_aux_files(root):
+    """.svg/.eot siblings: path and size only, no parsing, no cache."""
+    for dirpath, dirs, files in os.walk(root):
+        dirs[:] = sorted(
+            d for d in dirs if d not in SKIP_DIRS and not d.startswith(".")
+        )
+        for name in sorted(files):
+            if name.startswith("._") or name.startswith("."):
+                continue
+            if os.path.splitext(name)[1].lower() in AUX_EXTS:
                 yield os.path.join(dirpath, name)
 
 
@@ -872,10 +953,16 @@ def apply_override(overrides, family_name, directory):
 NEVER_HOIST = {"name", "files", "preview"}
 
 
-def build_families(records, overrides):
+def build_families(records, overrides, aux_paths=()):
     """Group records into families, collapse format duplicates, hoist strings."""
     seen_hashes = {}
     groups = defaultdict(list)
+
+    # .svg/.eot indexed the way styles are, so they can be handed to the family
+    # they belong to and matched against its style keys
+    aux_by_dir = defaultdict(list)
+    for path, size in aux_paths:
+        aux_by_dir[family_dir(path)].append((path, size))
 
     def canonical_rank(rec):
         name = os.path.basename(rec["path"])
@@ -888,9 +975,49 @@ def build_families(records, overrides):
             rec["duplicateOf"] = None if first == rec["path"] else first
 
     for rec in records:
-        directory = os.path.dirname(rec["path"]).replace(os.sep, "/")
+        directory = family_dir(rec["path"])
         family = rec.get("typoFamily") or rec.get("family") or "Unknown"
         groups[(directory, family)].append(rec)
+
+    # Fold naming artefacts. A kit's WOFF build sometimes mangles the name
+    # table -- Averta's ships family "Averta Extra", subfamily "☞" -- which
+    # splinters a few faces into a family of their own beside the real one.
+    # When every face in the smaller group already exists under another name in
+    # the same folder, it is that mangling, not a separate family.
+    group_keys = {
+        gk: {k for rec in recs for k in style_keys(rec)} for gk, recs in groups.items()
+    }
+    by_directory = defaultdict(list)
+    for gk in groups:
+        by_directory[gk[0]].append(gk)
+    for siblings in by_directory.values():
+        if len(siblings) < 2:
+            continue
+        siblings.sort(key=lambda gk: (-len(groups[gk]), gk[1].lower()))
+        for i, small in enumerate(siblings):
+            if not groups[small]:
+                continue
+            for big in siblings[:i]:
+                if groups[big] and group_keys[small] <= group_keys[big]:
+                    groups[big].extend(groups[small])
+                    groups[small] = []
+                    break
+    groups = {gk: recs for gk, recs in groups.items() if recs}
+
+    # every aux file goes to one style only: the group that owns the most
+    # files for that face, so a leftover artefact can't claim a copy too
+    aux_owner = {}
+    for directory, paths in aux_by_dir.items():
+        for path, _size in paths:
+            key = norm_key(os.path.splitext(os.path.basename(path))[0])
+            best = max(
+                (gk for gk in by_directory.get(directory, ()) if gk in groups
+                 and key in group_keys[gk]),
+                key=lambda gk: (len(groups[gk]), gk[1].lower()),
+                default=None,
+            )
+            if best is not None:
+                aux_owner[path] = best
 
     families = []
     for (directory, family_name), recs in sorted(
@@ -899,13 +1026,34 @@ def build_families(records, overrides):
         segments = [s for s in directory.split("/") if s and s != "."]
         context = f"{family_name} {' '.join(segments)}"
 
-        # collapse files that are the same style in a different format
+        # collapse files that are the same style in a different format: union
+        # the records that share any key, so a chain of half-matching names
+        # still lands in one style
+        owner = {}
+
+        def find(i):
+            while owner[i] != i:
+                owner[i] = owner[owner[i]]
+                i = owner[i]
+            return i
+
+        first_seen = {}
+        for i, rec in enumerate(recs):
+            owner[i] = i
+            for key in style_keys(rec):
+                other = first_seen.setdefault(key, i)
+                if other != i:
+                    owner[find(i)] = find(other)
+
         by_style = defaultdict(list)
-        for rec in recs:
-            key = rec.get("psName") or rec["stem"]
-            by_style[key].append(rec)
+        for i, rec in enumerate(recs):
+            by_style[find(i)].append(rec)
+        keys_of = defaultdict(set)
+        for key, i in first_seen.items():
+            keys_of[find(i)].add(key)
 
         styles = []
+        styles_by_key = {}
         for key, group in by_style.items():
             group.sort(key=lambda r: FORMAT_RANK.get(r["format"], 5))
             head = group[0]
@@ -930,7 +1078,7 @@ def build_families(records, overrides):
                 files.append(entry)
 
             preview = next(
-                (f["path"] for f in files if f["format"] not in ("ttc", "otc")), None
+                (f["path"] for f in files if f["format"] not in UNRENDERABLE), None
             )
 
             entry = {
@@ -999,6 +1147,26 @@ def build_families(records, overrides):
             if head.get("error"):
                 entry["error"] = head["error"]
             styles.append(entry)
+            for name in keys_of[key]:
+                styles_by_key[name] = entry
+
+        # hang .svg/.eot on the style whose filename they share. Anything that
+        # matches nothing is dropped -- that is what keeps FontAwesome's 14,808
+        # icon SVGs from inventing styles.
+        for path, size in aux_by_dir.get(directory, ()):
+            if aux_owner.get(path) != (directory, family_name):
+                continue
+            name = os.path.basename(path)
+            style = styles_by_key.get(norm_key(os.path.splitext(name)[0]))
+            if style is None:
+                continue
+            style["files"].append(
+                {
+                    "path": path,
+                    "format": os.path.splitext(name)[1].lower().lstrip("."),
+                    "size": size,
+                }
+            )
 
         styles.sort(key=lambda s: (s["italic"], s["weight"], s["name"].lower()))
 
@@ -1224,10 +1392,26 @@ def main():
         print(f"parsed {len(stale)} in {time.time() - started:.1f}s")
 
     records.sort(key=lambda r: r["path"])
+
+    aux = []
+    for path in iter_aux_files(root):
+        try:
+            aux.append((os.path.relpath(path, root), os.path.getsize(path)))
+        except OSError:
+            continue
+
     overrides = load_overrides(REPO_DIR)
-    families = build_families(records, overrides)
+    families = build_families(records, overrides, aux)
     tree = build_tree(families)
     facets = build_facets(families)
+
+    attached = sum(
+        1
+        for f in families
+        for style in f["styles"]
+        for file in style["files"]
+        if file["format"] in ("svg", "eot")
+    )
 
     failed = [r for r in records if r.get("error")]
     guessed = [r for r in records if r.get("familyGuessed")]
@@ -1240,7 +1424,7 @@ def main():
         "counts": {
             "families": len(families),
             "styles": sum(f["styleCount"] for f in families),
-            "files": len(records),
+            "files": len(records) + attached,
             "duplicates": duplicates,
             "failed": len(failed),
         },
@@ -1250,6 +1434,7 @@ def main():
     }
 
     print(f"\nfiles:      {len(records)}")
+    print(f"svg/eot:    {attached} attached of {len(aux)} found")
     print(f"families:   {len(families)}")
     print(f"styles:     {manifest['counts']['styles']}")
     print(f"duplicates: {duplicates}")

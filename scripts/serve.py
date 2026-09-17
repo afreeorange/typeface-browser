@@ -33,6 +33,7 @@ FONT_TYPES = {
     ".otc": "font/collection",
     ".woff": "font/woff",
     ".woff2": "font/woff2",
+    ".eot": "application/vnd.ms-fontobject",
     ".json": "application/json",
     ".mjs": "text/javascript",
 }
@@ -70,6 +71,8 @@ class Handler(SimpleHTTPRequestHandler):
             ".woff2",
             ".ttc",
             ".otc",
+            ".eot",
+            ".svg",
         ):
             self.send_header("Cache-Control", "public, max-age=86400")
         else:

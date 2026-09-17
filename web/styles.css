@@ -176,7 +176,8 @@ main {
   border-left: var(--row);
   overflow-y: auto;
   background: var(--bg-alt);
-  padding: 0 0 60px;
+  /* no bottom padding: .formatbar sticks flush to the panel's bottom edge */
+  padding: 0;
 }
 
 /* ------------------------------------------------------------- facets */
@@ -559,4 +560,44 @@ a.dl {
 a.dl:hover {
   color: var(--accent);
   background: var(--accent-soft);
+}
+
+/* ----------------------------------------------------------- format pills */
+.formatbar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px 14px;
+  border-top: var(--row);
+  background: var(--bg-alt);
+  box-shadow: 0 -6px 14px -10px rgba(0, 0, 0, 0.5);
+}
+button.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+button.pill .n {
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-faint);
+}
+button.pill:not(:disabled):hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+button.pill:disabled {
+  color: var(--fg-faint);
+  border-color: var(--line);
+  background: transparent;
+  opacity: 0.55;
+  cursor: default;
 }

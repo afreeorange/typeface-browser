@@ -7,7 +7,7 @@ import {
   useRef,
   useCallback,
 } from "./vendor/standalone.module.js";
-import { buildZip, saveBlob, safeName } from "./zip.js";
+import { buildZip, saveBlob, saveUrl, safeName } from "./zip.js";
 
 // ---------------------------------------------------------------- manifest
 //
@@ -39,6 +39,10 @@ const WIDTH_ORDER = [
   "extra-expanded",
   "ultra-expanded",
 ];
+// always rendered in this order, greyed when the family has none, so the gaps
+// in a kit are as visible as what it ships
+const PILL_FORMATS = ["ttf", "otf", "woff", "woff2", "eot", "svg"];
+
 const WEIGHT_NAMES = {
   100: "Thin",
   200: "ExtraLight",
@@ -545,17 +549,27 @@ function Detail({ family, text, size, onClose }) {
   const allFiles = family.styles.flatMap((style) => style.files);
   const totalBytes = allFiles.reduce((n, file) => n + (file.size || 0), 0);
 
-  // single files go straight through the anchor's download attribute; a whole
-  // family is fetched and zipped here, because browsers refuse a burst of
-  // programmatic downloads
-  const downloadFamily = async () => {
-    if (zipping.current) return;
+  const byFormat = new Map();
+  allFiles.forEach((file) => {
+    if (!byFormat.has(file.format)) byFormat.set(file.format, []);
+    byFormat.get(file.format).push(file);
+  });
+
+  // one file goes straight through an anchor's download attribute; several are
+  // fetched and zipped here, because browsers refuse a burst of programmatic
+  // downloads
+  const downloadFiles = async (files, zipName) => {
+    if (zipping.current || !files.length) return;
+    if (files.length === 1) {
+      saveUrl(fontUrl(files[0].path), baseName(files[0].path));
+      return;
+    }
     zipping.current = true;
-    setZip({ done: 0, total: allFiles.length });
+    setZip({ done: 0, total: files.length });
     try {
       const used = new Map();
       const entries = [];
-      for (const file of allFiles) {
+      for (const file of files) {
         const response = await fetch(fontUrl(file.path));
         if (!response.ok) {
           throw new Error(`${response.status} on ${file.path}`);
@@ -574,9 +588,9 @@ function Detail({ family, text, size, onClose }) {
           name,
           bytes: new Uint8Array(await response.arrayBuffer()),
         });
-        setZip({ done: entries.length, total: allFiles.length });
+        setZip({ done: entries.length, total: files.length });
       }
-      saveBlob(buildZip(entries), `${safeName(family.name)}.zip`);
+      saveBlob(buildZip(entries), `${safeName(zipName)}.zip`);
       setZip(null);
     } catch (err) {
       setZip({ error: err.message });
@@ -584,6 +598,8 @@ function Detail({ family, text, size, onClose }) {
       zipping.current = false;
     }
   };
+
+  const busy = !!zip && zip.error === undefined;
 
   return html`
     <div class="detail">
@@ -608,8 +624,8 @@ function Detail({ family, text, size, onClose }) {
       <div class="actions">
         <button
           class="download"
-          disabled=${!!zip && zip.error === undefined}
-          onClick=${downloadFamily}
+          disabled=${busy}
+          onClick=${() => downloadFiles(allFiles, family.name)}
         >
           ${zip && zip.done !== undefined
             ? `zipping ${zip.done}/${zip.total}…`
@@ -735,6 +751,30 @@ function Detail({ family, text, size, onClose }) {
                 `,
               )}
             </div>
+          `;
+        })}
+      </div>
+
+      <div class="formatbar">
+        ${PILL_FORMATS.map((fmt) => {
+          const files = byFormat.get(fmt) || [];
+          const bytes = files.reduce((n, file) => n + (file.size || 0), 0);
+          return html`
+            <button
+              class="pill"
+              key=${fmt}
+              disabled=${busy || !files.length}
+              title=${files.length
+                ? `download ${files.length} ${fmt.toUpperCase()} file${files.length === 1 ? "" : "s"} · ${fmtBytes(bytes)}`
+                : `no ${fmt.toUpperCase()} in this family`}
+              onClick=${() => downloadFiles(files, `${family.name} ${fmt}`)}
+            >
+              ${fmt.toUpperCase()}${files.length
+                ? html`
+                    <span class="n">${files.length}</span>
+                  `
+                : null}
+            </button>
           `;
         })}
       </div>
