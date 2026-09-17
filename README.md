@@ -3,8 +3,8 @@
 For my collection of typefaces. Entirely vibe-coded with Claude Opus 5. Uses Preact for the web UI (which is just five files.)
 
 <p align="center">
-  <img src="https://public.nikhil.io/project-screenshots/typeface-browser-light.png" width="45%">
-  <img src="https://public.nikhil.io/project-screenshots/typeface-browser-dark.png" width="45%">
+  <img src="https://public.nikhil.io/project-screenshots/typeface-browser-light.png?" width="45.5%">
+  <img src="https://public.nikhil.io/project-screenshots/typeface-browser-dark.png?" width="45.5%">
 </p>
 
 ## Usage
